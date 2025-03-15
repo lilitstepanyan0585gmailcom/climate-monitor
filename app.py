@@ -6,20 +6,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import asyncio
 import aiohttp
-from concurrent.futures import ThreadPoolExecutor
 
-# Function to load data
+# Function to load historical data automatically from GitHub
 @st.cache_data
-def load_data(file):
+def load_historical_data():
+    url = "https://raw.githubusercontent.com/lilitstepanyan0585gmailcom/climate-monitor/main/temperature_data.csv"
     try:
-        df = pd.read_csv(file, parse_dates=['timestamp'])
-        required_columns = {'city', 'timestamp', 'temperature', 'season'}
-        if not required_columns.issubset(df.columns):
-            st.error(f"Error: The file must contain columns {required_columns}")
-            return None
+        df = pd.read_csv(url, parse_dates=['timestamp'])
         return df
     except Exception as e:
-        st.error(f"Data loading error: {e}")
+        st.error(f"Failed to load historical data: {e}")
         return None
 
 # Function to calculate moving average
@@ -72,51 +68,51 @@ async def fetch_weather_async(city, api_key):
 # Streamlit interface
 st.title("Temperature Analysis and Weather Monitoring")
 
-uploaded_file = st.file_uploader("Upload CSV file with historical data", type=["csv"])
+# Automatically load historical data
+df = load_historical_data()
 
-if uploaded_file:
-    df = load_data(uploaded_file)
-    if df is not None:
-        cities = df['city'].unique()
-        city = st.selectbox("Select city", cities)
-        df_city = df[df['city'] == city].copy()
-        
-        df_city = moving_average(df_city)
-        df_city = detect_anomalies(df_city)
-        
-        if len(df_city) > 10:
-            fig = px.line(df_city, x='timestamp', y='temperature', title=f'Temperature in {city}')
-            fig.add_trace(go.Scatter(x=df_city['timestamp'], y=df_city['upper_bound'], mode='lines', name='Upper Bound'))
-            fig.add_trace(go.Scatter(x=df_city['timestamp'], y=df_city['lower_bound'], mode='lines', name='Lower Bound'))
-            fig.add_trace(go.Scatter(x=df_city['timestamp'][df_city['anomaly']],
-                                     y=df_city['temperature'][df_city['anomaly']],
-                                     mode='markers', name='Anomalies', marker=dict(color='red')))
-            st.plotly_chart(fig)
-        else:
-            st.warning("Not enough data to plot a graph")
-        
-        # API key input
-        api_key = "7c69345ec0c70bca1ae9847979e7cac1"
-        if api_key:
-            method = st.radio("Select request method", ["Synchronous", "Asynchronous"])
-            if st.button("Get current temperature"):
-                if method == "Synchronous":
-                    weather_data = fetch_weather_sync(city, api_key)
-                else:
-                    weather_data = asyncio.run(fetch_weather_async(city, api_key))
-                
-                if weather_data and "main" in weather_data:
-                    current_temp = weather_data["main"]["temp"]
-                    st.write(f"Current temperature in {city}: {current_temp}°C")
-                    most_common_season = df_city['season'].mode()[0] if not df_city['season'].mode().empty else None
-                    if most_common_season:
-                        season_mean = df_city[df_city['season'] == most_common_season]['temperature'].mean()
-                        season_std = df_city[df_city['season'] == most_common_season]['temperature'].std()
-                        lower_bound = season_mean - 2 * season_std
-                        upper_bound = season_mean + 2 * season_std
-                        if lower_bound <= current_temp <= upper_bound:
-                            st.success("Temperature is within normal range.")
-                        else:
-                            st.error("Anomalous temperature!")
-                else:
-                    st.error("Error retrieving data. Check API key and city name.")
+if df is not None:
+    cities = df['city'].unique()
+    city = st.selectbox("Select city", cities)
+    df_city = df[df['city'] == city].copy()
+    
+    df_city = moving_average(df_city)
+    df_city = detect_anomalies(df_city)
+    
+    if len(df_city) > 10:
+        fig = px.line(df_city, x='timestamp', y='temperature', title=f'Temperature in {city}')
+        fig.add_trace(go.Scatter(x=df_city['timestamp'], y=df_city['upper_bound'], mode='lines', name='Upper Bound'))
+        fig.add_trace(go.Scatter(x=df_city['timestamp'], y=df_city['lower_bound'], mode='lines', name='Lower Bound'))
+        fig.add_trace(go.Scatter(x=df_city['timestamp'][df_city['anomaly']],
+                                 y=df_city['temperature'][df_city['anomaly']],
+                                 mode='markers', name='Anomalies', marker=dict(color='red')))
+        st.plotly_chart(fig)
+    else:
+        st.warning("Not enough data to plot a graph")
+    
+    # API key (hardcoded)
+    api_key = "7c69345ec0c70bca1ae9847979e7cac1"
+    
+    if api_key:
+        method = st.radio("Select request method", ["Synchronous", "Asynchronous"])
+        if st.button("Get current temperature"):
+            if method == "Synchronous":
+                weather_data = fetch_weather_sync(city, api_key)
+            else:
+                weather_data = asyncio.run(fetch_weather_async(city, api_key))
+            
+            if weather_data and "main" in weather_data:
+                current_temp = weather_data["main"]["temp"]
+                st.write(f"Current temperature in {city}: {current_temp}°C")
+                most_common_season = df_city['season'].mode()[0] if not df_city['season'].mode().empty else None
+                if most_common_season:
+                    season_mean = df_city[df_city['season'] == most_common_season]['temperature'].mean()
+                    season_std = df_city[df_city['season'] == most_common_season]['temperature'].std()
+                    lower_bound = season_mean - 2 * season_std
+                    upper_bound = season_mean + 2 * season_std
+                    if lower_bound <= current_temp <= upper_bound:
+                        st.success("Temperature is within normal range.")
+                    else:
+                        st.error("Anomalous temperature!")
+            else:
+                st.error("Error retrieving data. Check API key and city name.")
